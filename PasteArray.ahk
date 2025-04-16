@@ -4,7 +4,7 @@ myArray := [""]
 ; Initialize an index to keep track of the current position in the array
 currentIndex := 1
 
-; Define the hotkey (Alt+C)
+; Define the hotkey (Alt+Q)
 !q::
     ; Check if the current index is within the bounds of the array
     if (currentIndex <= myArray.MaxIndex()) {
