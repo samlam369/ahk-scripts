@@ -1,30 +1,32 @@
-#Requires AutoHotkey v2.0+
+#Requires AutoHotkey v2.0
 
-SetCapsLockState("AlwaysOff")
+; Remap CapsLock to act as a modifier key
+#HotIf true
+CapsLock::return
+#HotIf
 
-; CapsLock:: {
-;     static start := 0 ; Initialize start time
-;     if (A_PriorKey = "CapsLock" && A_TimeSincePriorHotkey < 400 && A_TimeSinceThisHotkey > 50) { ; Double-tap
-;         SetCapsLockState(!GetKeyState("CapsLock", "T"))
-;         start := 0 ; Reset start time
-;         return
-;     }
-;     start := A_TickCount
-;     KeyWait("CapsLock")
-;     ; If it wasn't a double-tap, it's a modifier press.
-;     ; The *CapsLock::Return handles the modifier behavior.
-; }
+SendArrowWithHeldModifiers(arrowKey) {
+    local tempMods := ""
+    if GetKeyState("Control", "P")  ; Check physical state of Ctrl
+        tempMods .= "^"
+    if GetKeyState("Shift", "P")    ; Check physical state of Shift
+        tempMods .= "+"
+    if GetKeyState("Alt", "P")     ; Check physical state of Alt
+        tempMods .= "!"
+    
+    ; SendInput is generally more reliable for sending keystrokes.
+    SendInput(tempMods . "{" . arrowKey . "}")
+}
 
-*CapsLock::Return ; Makes CapsLock act as a modifier and suppresses its native function when held
+; Use CapsLock as the main modifier for the hotkeys.
+; Use wildcard (*) to allow other modifiers (Ctrl, Shift, Alt) to be physically held down
+; at the same time. The SendArrowWithHeldModifiers function will then include them.
 
-#HotIf GetKeyState("CapsLock", "P") ; True if CapsLock is being physically held down
-
-    ; Standard navigation with CapsLock
-    i::Send "{Up}"
-    j::Send "{Left}"
-    k::Send "{Down}"
-    l::Send "{Right}"
-    ; u::Send "{Home}"
-    ; o::Send "{End}"
-
-#HotIf ; Turns off context-sensitive hotkeys
+CapsLock & i::SendArrowWithHeldModifiers("Up")
+CapsLock & k::SendArrowWithHeldModifiers("Down")
+CapsLock & j::SendArrowWithHeldModifiers("Left")
+CapsLock & l::SendArrowWithHeldModifiers("Right")
+CapsLock & u::SendArrowWithHeldModifiers("Home")
+CapsLock & o::SendArrowWithHeldModifiers("End")
+CapsLock & p::SendArrowWithHeldModifiers("Backspace")
+CapsLock & SC027::SendArrowWithHeldModifiers("Delete")  ; SC027 is the semicolon key
