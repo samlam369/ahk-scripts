@@ -33,25 +33,15 @@ SendKeyWithMods(key) {
     SendInput mods "{" key "}"
 }
 
-; Helper function for CapsLock hotkeys
-CapsLockAction(action, *) {
-    SendInput "{Blind}{" action "}"
-}
-
-; Helper function for RAlt hotkeys
-RAltAction(action, *) {
-    SendKeyWithMods(action)
-}
-
-; Function to create hotkeys
-CreateHotkeys(prefix) {
+; Function to register hotkeys
+RegisterHotkeys(prefix) {
     for key, action in keyMappings {
         try {
             switch prefix {
                 case "CapsLock":
-                    Hotkey(prefix " & " key, CapsLockAction.Bind(action))
+                    Hotkey(prefix " & " key, ((targetKey, *) => SendInput("{Blind}{" targetKey "}")).Bind(action))
                 case "RAlt":
-                    Hotkey(">*!" key, RAltAction.Bind(action))
+                    Hotkey(">*!" key, ((targetKey, *) => SendKeyWithMods(targetKey)).Bind(action))
             }
         } catch Error as e {
             MsgBox "Failed to create hotkey: " e.Message
@@ -63,8 +53,8 @@ CreateHotkeys(prefix) {
 ; Initialize Hotkeys
 ; ============================================
 
-; Create CapsLock hotkeys
-CreateHotkeys("CapsLock")
+; Register CapsLock hotkeys
+RegisterHotkeys("CapsLock")
 
-; Create RAlt hotkeys
-CreateHotkeys("RAlt")
+; Register RAlt hotkeys
+RegisterHotkeys("RAlt")
