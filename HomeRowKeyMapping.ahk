@@ -1,20 +1,19 @@
 #Requires AutoHotkey v2.0
 
 ; ============================================
-; CapsLock Configuration
+; Key Mappings Configuration
 ; ============================================
-; CapsLock is used as a modifier key when combined with other keys
-; When pressed alone, it functions as a normal Caps Lock toggle (handled by Windows)
-; When used with other keys, it triggers the hotkeys below
-; {Blind} preserves the state of modifier keys (Ctrl, Shift, Alt)
-CapsLock &  i::SendInput "{Blind}{Up}"
-CapsLock &  k::SendInput "{Blind}{Down}"
-CapsLock &  j::SendInput "{Blind}{Left}"
-CapsLock &  l::SendInput "{Blind}{Right}"
-CapsLock &  u::SendInput "{Blind}{Home}"
-CapsLock &  o::SendInput "{Blind}{End}"
-CapsLock &  p::SendInput "{Blind}{Backspace}"
-CapsLock & `;::SendInput "{Blind}{Delete}"
+; Define key mappings for both CapsLock and RAlt
+keyMappings := Map(
+    "i", "Up",
+    "k", "Down",
+    "j", "Left",
+    "l", "Right",
+    "u", "Home",
+    "o", "End",
+    "p", "Backspace",
+    ";", "Delete"
+)
 
 ; ============================================
 ; Helper Function for RAlt Hotkeys
@@ -34,17 +33,38 @@ SendKeyWithMods(key) {
     SendInput mods "{" key "}"
 }
 
+; Helper function for CapsLock hotkeys
+CapsLockAction(action, *) {
+    SendInput "{Blind}{" action "}"
+}
+
+; Helper function for RAlt hotkeys
+RAltAction(action, *) {
+    SendKeyWithMods(action)
+}
+
+; Function to create hotkeys
+CreateHotkeys(prefix) {
+    for key, action in keyMappings {
+        try {
+            switch prefix {
+                case "CapsLock":
+                    Hotkey(prefix " & " key, CapsLockAction.Bind(action))
+                case "RAlt":
+                    Hotkey(">*!" key, RAltAction.Bind(action))
+            }
+        } catch Error as e {
+            MsgBox "Failed to create hotkey: " e.Message
+        }
+    }
+}
+
 ; ============================================
-; Right Alt (AltGr) Configuration
+; Initialize Hotkeys
 ; ============================================
-; Right Alt (AltGr) is used as an alternative modifier key
-; The * prefix allows other modifiers (Ctrl, Shift, LAlt) to be held down simultaneously
-; The > prefix specifies the right Alt key specifically
-*>!i::SendKeyWithMods("Up")
-*>!k::SendKeyWithMods("Down")
-*>!j::SendKeyWithMods("Left")
-*>!l::SendKeyWithMods("Right")
-*>!u::SendKeyWithMods("Home")
-*>!o::SendKeyWithMods("End")
-*>!p::SendKeyWithMods("Backspace")
-*>!;::SendKeyWithMods("Delete")
+
+; Create CapsLock hotkeys
+CreateHotkeys("CapsLock")
+
+; Create RAlt hotkeys
+CreateHotkeys("RAlt")
