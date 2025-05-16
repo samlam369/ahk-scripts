@@ -30,7 +30,7 @@ SendKeyWithMods(key) {
         mods .= "!"
     
     ; Send the key with modifiers, but without the RAlt that triggered this hotkey
-    SendInput mods "{" key "}"
+    SendInput(mods "{" key "}")
 }
 
 ; Function to register hotkeys
