@@ -28,6 +28,29 @@ SendArrowWithHeldModifiers(arrowKey, isRAltTrigger := false) {
 ; ============================================
 ; CapsLock Configuration
 ; ============================================
+global is_modifier_used := false
+global caps_down_time := 0
+
+; --- Logic for CapsLock tap-toggle and modifier behavior ---
+*CapsLock:: {
+    caps_down_time := A_TickCount
+    is_modifier_used := false ; Reset flag at the beginning of a potential combo
+}
+
+CapsLock Up:: {
+    Critical ; Ensures this routine completes without interruption
+    If (!is_modifier_used)
+    {
+        ; Check if it was a short press (tap)
+        If (A_TickCount - caps_down_time < 200) ; 200ms threshold for tap, adjust if needed
+        {
+            SetCapsLockState
+        }
+    }
+    ; is_modifier_used is reset by the next *CapsLock (down) press.
+}
+; --- End of CapsLock tap-toggle logic ---
+
 ; Remap CapsLock to act as a modifier key
 #HotIf true
 CapsLock::return
@@ -36,14 +59,46 @@ CapsLock::return
 ; Use CapsLock as the main modifier for the hotkeys.
 ; Use wildcard (*) to allow other modifiers (Ctrl, Shift, Alt) to be physically held down
 ; at the same time. The SendArrowWithHeldModifiers function will then include them.
-CapsLock & i::SendArrowWithHeldModifiers("Up")
-CapsLock & k::SendArrowWithHeldModifiers("Down")
-CapsLock & j::SendArrowWithHeldModifiers("Left")
-CapsLock & l::SendArrowWithHeldModifiers("Right")
-CapsLock & u::SendArrowWithHeldModifiers("Home")
-CapsLock & o::SendArrowWithHeldModifiers("End")
-CapsLock & p::SendArrowWithHeldModifiers("Backspace")
-CapsLock & `;::SendArrowWithHeldModifiers("Delete")  ; Semicolon key
+CapsLock & i:: {
+    Critical
+    is_modifier_used := true
+    SendArrowWithHeldModifiers("Up")
+}
+CapsLock & k:: {
+    Critical
+    is_modifier_used := true
+    SendArrowWithHeldModifiers("Down")
+}
+CapsLock & j:: {
+    Critical
+    is_modifier_used := true
+    SendArrowWithHeldModifiers("Left")
+}
+CapsLock & l:: {
+    Critical
+    is_modifier_used := true
+    SendArrowWithHeldModifiers("Right")
+}
+CapsLock & u:: {
+    Critical
+    is_modifier_used := true
+    SendArrowWithHeldModifiers("Home")
+}
+CapsLock & o:: {
+    Critical
+    is_modifier_used := true
+    SendArrowWithHeldModifiers("End")
+}
+CapsLock & p:: {
+    Critical
+    is_modifier_used := true
+    SendArrowWithHeldModifiers("Backspace")
+}
+CapsLock & `;:: { ; Semicolon key
+    Critical
+    is_modifier_used := true
+    SendArrowWithHeldModifiers("Delete")
+}
 
 ; ============================================
 ; RAlt Configuration
@@ -59,4 +114,3 @@ CapsLock & `;::SendArrowWithHeldModifiers("Delete")  ; Semicolon key
 *>!o::SendArrowWithHeldModifiers("End", true)
 *>!p::SendArrowWithHeldModifiers("Backspace", true)
 *>!;::SendArrowWithHeldModifiers("Delete", true)
-
