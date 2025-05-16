@@ -3,8 +3,14 @@
 ; ============================================
 ; Shared Function for Arrow Key with Modifiers
 ; ============================================
-SendArrowWithHeldModifiers(arrowKey, isRAltTrigger := false) {
+; Handles sending keys with any held modifier keys (Ctrl, Shift, Alt)
+; Parameters:
+;   key: The key to send (e.g., "Up", "Down", "Left", "Right", "Home", etc.)
+;   isRAltTrigger: Boolean indicating if triggered by Right Alt key (special handling for Alt)
+SendKeyWithModifiers(key, isRAltTrigger := false) {
     local tempMods := ""
+    
+    ; Check for held modifier keys
     if GetKeyState("Control", "P")  ; Check physical state of Ctrl
         tempMods .= "^"
     if GetKeyState("Shift", "P")    ; Check physical state of Shift
@@ -12,7 +18,7 @@ SendArrowWithHeldModifiers(arrowKey, isRAltTrigger := false) {
     
     ; Special handling for Alt key based on the trigger type
     if (isRAltTrigger) {
-        ; For RAlt triggers, only include LAlt in modifiers
+        ; For RAlt triggers, only include LAlt in modifiers (to avoid RAlt conflict)
         if GetKeyState("LAlt", "P")
             tempMods .= "!"
     } else {
@@ -21,96 +27,39 @@ SendArrowWithHeldModifiers(arrowKey, isRAltTrigger := false) {
             tempMods .= "!"
     }
     
-    ; SendInput is generally more reliable for sending keystrokes.
-    SendInput(tempMods . "{" . arrowKey . "}")
+    ; Send the key combination with any held modifiers
+    ; Using SendInput for reliability and consistency
+    SendInput(tempMods . "{" . key . "}")
 }
 
 ; ============================================
 ; CapsLock Configuration
 ; ============================================
-global is_modifier_used := false
-global caps_down_time := 0
-
-; --- Logic for CapsLock tap-toggle and modifier behavior ---
-*CapsLock:: {
-    caps_down_time := A_TickCount
-    is_modifier_used := false ; Reset flag at the beginning of a potential combo
-}
-
-CapsLock Up:: {
-    Critical ; Ensures this routine completes without interruption
-    If (!is_modifier_used)
-    {
-        ; Check if it was a short press (tap)
-        If (A_TickCount - caps_down_time < 200) ; 200ms threshold for tap, adjust if needed
-        {
-            SetCapsLockState
-        }
-    }
-    ; is_modifier_used is reset by the next *CapsLock (down) press.
-}
-; --- End of CapsLock tap-toggle logic ---
-
-; Remap CapsLock to act as a modifier key
-#HotIf true
-CapsLock::return
-#HotIf
-
-; Use CapsLock as the main modifier for the hotkeys.
-; Use wildcard (*) to allow other modifiers (Ctrl, Shift, Alt) to be physically held down
-; at the same time. The SendArrowWithHeldModifiers function will then include them.
-CapsLock & i:: {
-    Critical
-    is_modifier_used := true
-    SendArrowWithHeldModifiers("Up")
-}
-CapsLock & k:: {
-    Critical
-    is_modifier_used := true
-    SendArrowWithHeldModifiers("Down")
-}
-CapsLock & j:: {
-    Critical
-    is_modifier_used := true
-    SendArrowWithHeldModifiers("Left")
-}
-CapsLock & l:: {
-    Critical
-    is_modifier_used := true
-    SendArrowWithHeldModifiers("Right")
-}
-CapsLock & u:: {
-    Critical
-    is_modifier_used := true
-    SendArrowWithHeldModifiers("Home")
-}
-CapsLock & o:: {
-    Critical
-    is_modifier_used := true
-    SendArrowWithHeldModifiers("End")
-}
-CapsLock & p:: {
-    Critical
-    is_modifier_used := true
-    SendArrowWithHeldModifiers("Backspace")
-}
-CapsLock & `;:: { ; Semicolon key
-    Critical
-    is_modifier_used := true
-    SendArrowWithHeldModifiers("Delete")
-}
+; CapsLock is used as a modifier key when combined with other keys
+; When pressed alone, it functions as a normal Caps Lock toggle (handled by Windows)
+; When used with other keys, it triggers the hotkeys below
+CapsLock & i::SendKeyWithModifiers("Up")      ; Move cursor up
+CapsLock & k::SendKeyWithModifiers("Down")    ; Move cursor down
+CapsLock & j::SendKeyWithModifiers("Left")    ; Move cursor left
+CapsLock & l::SendKeyWithModifiers("Right")   ; Move cursor right
+CapsLock & u::SendKeyWithModifiers("Home")    ; Move to start of line
+CapsLock & o::SendKeyWithModifiers("End")     ; Move to end of line
+CapsLock & p::SendKeyWithModifiers("Backspace") ; Delete previous character
+CapsLock & `;::SendKeyWithModifiers("Delete")   ; Delete next character (semicolon key)
 
 ; ============================================
-; RAlt Configuration
+; Right Alt (AltGr) Configuration
 ; ============================================
-; Use RAlt (>) as the main modifier for the hotkeys.
-; Use wildcard (*) to allow other modifiers (Ctrl, Shift, LAlt) to be physically held down
-; at the same time. The SendArrowWithHeldModifiers function will then include them.
-*>!i::SendArrowWithHeldModifiers("Up", true)
-*>!k::SendArrowWithHeldModifiers("Down", true)
-*>!j::SendArrowWithHeldModifiers("Left", true)
-*>!l::SendArrowWithHeldModifiers("Right", true)
-*>!u::SendArrowWithHeldModifiers("Home", true)
-*>!o::SendArrowWithHeldModifiers("End", true)
-*>!p::SendArrowWithHeldModifiers("Backspace", true)
-*>!;::SendArrowWithHeldModifiers("Delete", true)
+; Right Alt (AltGr) is used as an alternative modifier key
+; The * prefix allows other modifiers (Ctrl, Shift, LAlt) to be held down simultaneously
+; The > prefix specifies the right Alt key specifically
+; The ! symbol represents the Alt key in AHK
+*>!i::SendKeyWithModifiers("Up", true)       ; Move cursor up
+*>!k::SendKeyWithModifiers("Down", true)     ; Move cursor down
+*>!j::SendKeyWithModifiers("Left", true)     ; Move cursor left
+*>!l::SendKeyWithModifiers("Right", true)    ; Move cursor right
+*>!u::SendKeyWithModifiers("Home", true)     ; Move to start of line
+*>!o::SendKeyWithModifiers("End", true)      ; Move to end of line
+*>!p::SendKeyWithModifiers("Backspace", true) ; Delete previous character
+*>!;::SendKeyWithModifiers("Delete", true)    ; Delete next character (semicolon key)
+
