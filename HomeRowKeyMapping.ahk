@@ -7,14 +7,14 @@
 ; When pressed alone, it functions as a normal Caps Lock toggle (handled by Windows)
 ; When used with other keys, it triggers the hotkeys below
 ; {Blind} preserves the state of modifier keys (Ctrl, Shift, Alt)
-CapsLock &  i::SendInput("{Blind}{Up}")
-CapsLock &  k::SendInput("{Blind}{Down}")
-CapsLock &  j::SendInput("{Blind}{Left}")
-CapsLock &  l::SendInput("{Blind}{Right}")
-CapsLock &  u::SendInput("{Blind}{Home}")
-CapsLock &  o::SendInput("{Blind}{End}")
-CapsLock &  p::SendInput("{Blind}{Backspace}")
-CapsLock & `;::SendInput("{Blind}{Delete}")
+CapsLock &  i::SendInput "{Blind}{Up}"
+CapsLock &  k::SendInput "{Blind}{Down}"
+CapsLock &  j::SendInput "{Blind}{Left}"
+CapsLock &  l::SendInput "{Blind}{Right}"
+CapsLock &  u::SendInput "{Blind}{Home}"
+CapsLock &  o::SendInput "{Blind}{End}"
+CapsLock &  p::SendInput "{Blind}{Backspace}"
+CapsLock & `;::SendInput "{Blind}{Delete}"
 
 ; ============================================
 ; Helper Function for RAlt Hotkeys
@@ -31,7 +31,7 @@ SendKeyWithMods(key) {
         mods .= "!"
     
     ; Send the key with modifiers, but without the RAlt that triggered this hotkey
-    SendInput(mods . "{" . key . "}")
+    SendInput mods "{" key "}"
 }
 
 ; ============================================
@@ -48,4 +48,3 @@ SendKeyWithMods(key) {
 *>!o::SendKeyWithMods("End")
 *>!p::SendKeyWithMods("Backspace")
 *>!;::SendKeyWithMods("Delete")
-
