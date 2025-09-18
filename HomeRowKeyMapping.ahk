@@ -58,3 +58,32 @@ RegisterHotkeys("CapsLock")
 
 ; Register RAlt hotkeys
 RegisterHotkeys("RAlt")
+
+; ============================================
+; New Features: Code Block Creation
+; ============================================
+
+; Helper function to create code block structure
+CreateCodeBlock() {
+    ; Send two newlines, three backticks, two newlines, three backticks, two newlines, then three up arrows
+    ; Using Shift+Enter for newlines to avoid triggering send/submit actions
+    SendInput("+{Enter}+{Enter}``````+{Enter}+{Enter}``````+{Enter}+{Enter}{Up}{Up}{Up}")
+}
+
+; Helper function to create code block and paste content
+CreateCodeBlockWithPaste() {
+    ; Two newlines, three backticks, newline, paste content, newline, three backticks, two newlines
+    SendInput("+{Enter}+{Enter}``````+{Enter}^v+{Enter}``````+{Enter}+{Enter}")
+}
+
+; Feature 1: CapsLock + ` creates spaced code block
+CapsLock & `::CreateCodeBlock()
+
+; Feature 1: RAlt + ` creates spaced code block  
+>*!`::CreateCodeBlock()
+
+; Feature 2: CapsLock + v creates code block and pastes
+CapsLock & v::CreateCodeBlockWithPaste()
+
+; Feature 2: RAlt + v creates code block and pastes
+>*!v::CreateCodeBlockWithPaste()
