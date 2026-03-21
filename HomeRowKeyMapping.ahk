@@ -72,8 +72,14 @@ CreateCodeBlock() {
 
 ; Helper function to create code block and paste content
 CreateCodeBlockWithPaste() {
-    ; Two newlines, three backticks, newline, paste content, newline, three backticks, two newlines
-    SendInput("+{Enter}+{Enter}``````+{Enter}^v+{Enter}``````+{Enter}+{Enter}")
+    ; You can adjust this delay value (in milliseconds) if you encounter issues.
+    local pasteDelay := 100
+
+    SendInput("+{Enter}+{Enter}``````+{Enter}")
+    Sleep(pasteDelay)
+    SendInput("^v")
+    Sleep(pasteDelay)
+    SendInput("+{Enter}``````+{Enter}+{Enter}")
 }
 
 ; Feature 1: CapsLock + ` creates spaced code block
