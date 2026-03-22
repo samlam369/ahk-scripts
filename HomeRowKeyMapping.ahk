@@ -86,7 +86,7 @@ CreateCodeBlock() {
 CreateCodeBlockWithPaste() {
     ; Construct the entire block first, then paste it atomically.
     ; This is much faster and more reliable than sequential SendInput calls.
-    content := A_Clipboard
+    content := Trim(A_Clipboard, "`r`n`t ")
     block := "`n`n``````" . "`n" . content . "`n" . "``````" . "`n`n"
     SafePaste(block)
 }
