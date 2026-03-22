@@ -63,23 +63,32 @@ RegisterHotkeys("RAlt")
 ; New Features: Code Block Creation
 ; ============================================
 
+; Helper function to paste text safely without losing clipboard content
+SafePaste(txt) {
+    SavedClip := ClipboardAll() ; Backup current clipboard
+    A_Clipboard := txt
+    if ClipWait(2) {
+        SendInput("^v")
+        Sleep(150) ; Brief pause to ensure OS finishes pasting
+    }
+    A_Clipboard := SavedClip ; Restore original clipboard
+}
+
 ; Helper function to create code block structure
 CreateCodeBlock() {
-    ; Send two newlines, three backticks, two newlines, three backticks, two newlines, then three up arrows
-    ; Using Shift+Enter for newlines to avoid triggering send/submit actions
-    SendInput("+{Enter}+{Enter}``````+{Enter}+{Enter}``````+{Enter}+{Enter}{Up}{Up}{Up}")
+    ; SendText sends raw characters (like `n for newline) which is more reliable than simulating Enter keys.
+    ; This avoids triggering "Send" buttons in most chat apps.
+    SendText("`n`n``````" . "`n`n" . "``````" . "`n`n")
+    SendInput("{Up 3}")
 }
 
 ; Helper function to create code block and paste content
 CreateCodeBlockWithPaste() {
-    ; You can adjust this delay value (in milliseconds) if you encounter issues.
-    local pasteDelay := 100
-
-    SendInput("+{Enter}+{Enter}``````+{Enter}")
-    Sleep(pasteDelay)
-    SendInput("^v")
-    Sleep(pasteDelay)
-    SendInput("+{Enter}``````+{Enter}+{Enter}")
+    ; Construct the entire block first, then paste it atomically.
+    ; This is much faster and more reliable than sequential SendInput calls.
+    content := A_Clipboard
+    block := "`n`n``````" . "`n" . content . "`n" . "``````" . "`n`n"
+    SafePaste(block)
 }
 
 ; Feature 1: CapsLock + ` creates spaced code block
