@@ -102,3 +102,25 @@ CapsLock & v::CreateCodeBlockWithPaste()
 
 ; Feature 2: RAlt + v creates code block and pastes
 >*!v::CreateCodeBlockWithPaste()
+
+; ============================================
+; New Feature: Remote-only Right Ctrl -> Windows key
+; ============================================
+; When connected via RDP (e.g. through Guacamole), the ChromeOS Launcher key
+; never reaches Windows. Workaround: press Right Ctrl on the Chromebook (which
+; ChromeOS does NOT intercept); it arrives here as Right Ctrl, and we remap it
+; to LWin -- but ONLY while this is a remote session, so local use is untouched.
+;
+; IsRemote() is checked on every keypress, so the remap auto-disables the moment
+; you disconnect. No process management or session-event tracking needed.
+;
+; NOTE: SM_REMOTESESSION (0x1000) returns nonzero inside an RDP session. If you
+; ever find it reports 0 in your Guacamole setup, run this once while connected
+; to verify before troubleshooting further:
+;     MsgBox DllCall("GetSystemMetrics", "Int", 0x1000)
+
+IsRemote() => DllCall("GetSystemMetrics", "Int", 0x1000)  ; SM_REMOTESESSION
+
+#HotIf IsRemote()
+RCtrl::LWin
+#HotIf
