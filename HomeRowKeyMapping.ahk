@@ -124,3 +124,151 @@ IsRemote() => DllCall("GetSystemMetrics", "Int", 0x1000)  ; SM_REMOTESESSION
 #HotIf IsRemote()
 RCtrl::LWin
 #HotIf
+
+; ============================================
+; New Feature: Mouse Control Layer (Tab held = momentary modifier)
+; ============================================
+; Hold Tab and drive the mouse with your right hand:
+;   Tab + i / j / k / l  -> move cursor up / left / down / right (accelerates)
+;   Tab + u              -> left  button: tap = click, hold = press-and-drag
+;   Tab + o              -> right button: tap = click, hold = press-and-drag
+;
+; Design notes:
+;   - Tab is swallowed on press and re-sent on release ONLY if it was tapped
+;     without driving the layer, so a solo Tab still types Tab everywhere.
+;   - Momentary layer: release Tab and you are instantly back to normal. The
+;     movement timer also self-stops the moment Tab is physically up, which
+;     doubles as a safety net so a held mouse button can never get stuck down.
+;   - The whole layer is gated behind NoModsHeld(), so Alt+Tab / Ctrl+Tab /
+;     Shift+Tab / Win+Tab all keep their native behaviour.
+;
+; Trade-off: holding Tab to auto-repeat Tab no longer works (hold = mouse
+; mode). Tap Tab several times instead.
+
+; --- Tunables (tweak to taste) ---
+MOUSE_TICK_MS := 10     ; cursor update interval in ms; lower = smoother
+MOUSE_MIN_SPD := 1.5    ; starting speed in px per tick
+MOUSE_MAX_SPD := 30     ; top speed in px per tick
+MOUSE_ACCEL   := 1.07   ; speed multiplier applied each tick while moving
+
+mouseCurSpd    := MOUSE_MIN_SPD
+tabLayerActive := false   ; guards StartMouseLayer against Tab key-repeat
+tabUsed        := false   ; did this Tab press drive the mouse layer?
+lbtnDown       := false   ; is the left  button currently held down by us?
+rbtnDown       := false   ; is the right button currently held down by us?
+
+; True only when none of Ctrl / Alt / Shift / Win are physically down, so that
+; modifier+Tab combos pass straight through to Windows.
+NoModsHeld() => !(GetKeyState("Ctrl", "P") || GetKeyState("Alt", "P")
+    || GetKeyState("Shift", "P") || GetKeyState("LWin", "P") || GetKeyState("RWin", "P"))
+
+StartMouseLayer() {
+    global tabLayerActive, tabUsed
+    if tabLayerActive          ; ignore auto-repeat while Tab is held down
+        return
+    tabLayerActive := true
+    tabUsed := false
+    SetTimer(MouseTick, MOUSE_TICK_MS)
+}
+
+EndMouseLayer() {
+    global tabLayerActive, tabUsed, mouseCurSpd
+    SetTimer(MouseTick, 0)
+    ReleaseMouseButtons()
+    mouseCurSpd := MOUSE_MIN_SPD
+    tabLayerActive := false
+    if !tabUsed                ; Tab was tapped on its own -> emit a real Tab
+        SendInput("{Tab}")
+}
+
+ReleaseMouseButtons() {
+    global lbtnDown, rbtnDown
+    if lbtnDown {
+        SendInput("{LButton Up}")
+        lbtnDown := false
+    }
+    if rbtnDown {
+        SendInput("{RButton Up}")
+        rbtnDown := false
+    }
+}
+
+; Press (and keep holding) a mouse button. Guarded so Tab+key auto-repeat does
+; not emit a stream of Down events.
+PressMouseBtn(which) {
+    global lbtnDown, rbtnDown, tabUsed
+    tabUsed := true
+    if (which = "Left" && !lbtnDown) {
+        SendInput("{LButton Down}")
+        lbtnDown := true
+    } else if (which = "Right" && !rbtnDown) {
+        SendInput("{RButton Down}")
+        rbtnDown := true
+    }
+}
+
+ReleaseMouseBtn(which) {
+    global lbtnDown, rbtnDown
+    if (which = "Left" && lbtnDown) {
+        SendInput("{LButton Up}")
+        lbtnDown := false
+    } else if (which = "Right" && rbtnDown) {
+        SendInput("{RButton Up}")
+        rbtnDown := false
+    }
+}
+
+; Movement: polls physical keys each tick so diagonals and acceleration stay
+; smooth regardless of key-repeat timing.
+MouseTick(*) {
+    global mouseCurSpd, tabUsed
+    if !GetKeyState("Tab", "P") {       ; safety net: Tab no longer held
+        SetTimer(MouseTick, 0)
+        ReleaseMouseButtons()
+        mouseCurSpd := MOUSE_MIN_SPD
+        return
+    }
+    dx := 0, dy := 0
+    if GetKeyState("i", "P")
+        dy -= 1
+    if GetKeyState("k", "P")
+        dy += 1
+    if GetKeyState("j", "P")
+        dx -= 1
+    if GetKeyState("l", "P")
+        dx += 1
+    if (dx = 0 && dy = 0) {
+        mouseCurSpd := MOUSE_MIN_SPD    ; reset acceleration when idle
+        return
+    }
+    tabUsed := true
+    mouseCurSpd := Min(mouseCurSpd * MOUSE_ACCEL, MOUSE_MAX_SPD)
+    if (dx != 0 && dy != 0) {           ; keep diagonals the same speed
+        dx *= 0.7071
+        dy *= 0.7071
+    }
+    moveX := Round(dx * mouseCurSpd)
+    moveY := Round(dy * mouseCurSpd)
+    if (moveX != 0 || moveY != 0)
+        MouseMove(moveX, moveY, 0, "R")
+}
+
+; Tab itself: arm the layer on press, disarm (and maybe emit Tab) on release.
+#HotIf NoModsHeld()
+Tab::StartMouseLayer()
+Tab up::EndMouseLayer()
+#HotIf
+
+; While Tab is physically held (and no modifier), the right-hand keys drive the
+; mouse instead of typing: i/j/k/l are swallowed (the timer reads them), while
+; u/o press and release the buttons so both tap-to-click and hold-to-drag work.
+#HotIf GetKeyState("Tab", "P") && NoModsHeld()
+i::return
+j::return
+k::return
+l::return
+u::PressMouseBtn("Left")
+u up::ReleaseMouseBtn("Left")
+o::PressMouseBtn("Right")
+o up::ReleaseMouseBtn("Right")
+#HotIf
