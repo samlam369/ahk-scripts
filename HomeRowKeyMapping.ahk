@@ -291,7 +291,7 @@ ReleaseMouseBtn(which) {
 ; scrolling stay smooth regardless of key-repeat timing. Movement and scroll
 ; are handled independently so you can do either, both, or neither per tick.
 MouseTick(*) {
-    global mouseCurSpd, scrollCurSpd, scrollAccum, scrolling, tabUsed, mouseToggleMode
+    global mouseCurSpd, scrollCurSpd, scrollAccum, scrolling, tabUsed, mouseToggleMode, lbtnDown, rbtnDown
     ; The layer is live while EITHER entry method holds it open: Tab physically
     ; down, OR mouse mode toggled on AND a toggle-modifier (CapsLock/RAlt) still
     ; physically held. Releasing the modifier therefore exits mouse mode.
@@ -364,6 +364,16 @@ MouseTick(*) {
         scrollCurSpd := SCROLL_MIN_SPD
         scrollAccum := 0.0
     }
+
+    ; --- release held buttons once their key is let go (ends a drag) ---
+    ; The button DOWN is triggered instantly by the per-mode hotkeys; release is
+    ; polled here from the physical key state because CapsLock custom-combination
+    ; "up" events fire early while the suffix auto-repeats, which would otherwise
+    ; drop the button mid-drag. Polling is reliable for every entry method.
+    if (lbtnDown && !GetKeyState("u", "P"))
+        ReleaseMouseBtn("Left")
+    if (rbtnDown && !GetKeyState("o", "P"))
+        ReleaseMouseBtn("Right")
 }
 
 ; Tab itself: arm the layer on press, disarm (and maybe emit Tab) on release.
@@ -374,7 +384,8 @@ Tab up::EndMouseLayer()
 
 ; While Tab is physically held (and no modifier), the right-hand keys drive the
 ; mouse instead of typing: i/j/k/l are swallowed (the timer reads them), while
-; u/o press and release the buttons so both tap-to-click and hold-to-drag work.
+; u/o press the buttons on key-down (the timer releases them when let go, so
+; both tap-to-click and hold-to-drag work).
 #HotIf GetKeyState("Tab", "P") && NoModsHeld()
 i::return
 j::return
@@ -383,9 +394,7 @@ l::return
 p::return    ; scroll up   (handled by the timer)
 `;::return   ; scroll down (handled by the timer)
 u::PressMouseBtn("Left")
-u up::ReleaseMouseBtn("Left")
 o::PressMouseBtn("Right")
-o up::ReleaseMouseBtn("Right")
 #HotIf
 
 ; ============================================
@@ -422,9 +431,7 @@ CapsLock & l::return
 CapsLock & p::return    ; scroll up   (handled by the timer)
 CapsLock & `;::return   ; scroll down (handled by the timer)
 CapsLock & u::PressMouseBtn("Left")
-CapsLock & u up::ReleaseMouseBtn("Left")
 CapsLock & o::PressMouseBtn("Right")
-CapsLock & o up::ReleaseMouseBtn("Right")
 ; --- RAlt variants (same overrides, RAlt hotkey syntax) ---
 >*!i::return
 >*!j::return
@@ -433,7 +440,5 @@ CapsLock & o up::ReleaseMouseBtn("Right")
 >*!p::return            ; scroll up   (handled by the timer)
 >*!`;::return           ; scroll down (handled by the timer)
 >*!u::PressMouseBtn("Left")
->*!u up::ReleaseMouseBtn("Left")
 >*!o::PressMouseBtn("Right")
->*!o up::ReleaseMouseBtn("Right")
 #HotIf
