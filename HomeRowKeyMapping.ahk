@@ -341,9 +341,9 @@ MouseTick(*) {
     ; --- scroll wheel (p = up, ; = down) ---
     sdir := 0
     if GetKeyState("p", "P")
-        sdir += 1
-    if GetKeyState(";", "P")            ; semicolon key
         sdir -= 1
+    if GetKeyState(";", "P")            ; semicolon key
+        sdir += 1
     if (sdir != 0) {
         tabUsed := true
         if !scrolling {                  ; just started -> notch immediately
