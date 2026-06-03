@@ -128,10 +128,14 @@ RCtrl::LWin
 ; ============================================
 ; New Feature: Mouse Control Layer (Tab held = momentary modifier)
 ; ============================================
-; Hold Tab and drive the mouse with your right hand:
+; Hold Tab and drive the mouse:
 ;   Tab + i / j / k / l  -> move cursor up / left / down / right (accelerates)
-;   Tab + u              -> left  button: tap = click, hold = press-and-drag
-;   Tab + o              -> right button: tap = click, hold = press-and-drag
+;   Tab + p / ;          -> scroll up / down (accelerates)
+;   Tab + u  or  f       -> left   button: tap = click, hold = press-and-drag
+;   Tab + o  or  d       -> right  button: tap = click, hold = press-and-drag
+;   Tab + s              -> middle button: tap = click, hold = press-and-drag
+; (u/o/p/; are the right-hand keys; f/d/s let the left hand click while the
+;  right hand moves, which makes click-and-drag much more comfortable.)
 ;
 ; Design notes:
 ;   - Tab is swallowed on press and re-sent on release ONLY if it was tapped
@@ -167,8 +171,9 @@ scrollAccum    := 0.0     ; fractional notches carried between ticks
 scrolling      := false   ; were we already scrolling last tick?
 tabLayerActive := false   ; guards StartMouseLayer against Tab key-repeat
 tabUsed        := false   ; did this Tab press drive the mouse layer?
-lbtnDown       := false   ; is the left  button currently held down by us?
-rbtnDown       := false   ; is the right button currently held down by us?
+lbtnDown       := false   ; is the left   button currently held down by us?
+rbtnDown       := false   ; is the right  button currently held down by us?
+mbtnDown       := false   ; is the middle button currently held down by us?
 mouseToggleMode := false  ; m-toggle entry (CapsLock or RAlt): in mouse mode now?
 mKeyDown        := false  ; guards the m toggle against auto-repeat
 
@@ -251,7 +256,7 @@ SendUnmodified(action) {
 }
 
 ReleaseMouseButtons() {
-    global lbtnDown, rbtnDown
+    global lbtnDown, rbtnDown, mbtnDown
     if lbtnDown {
         SendUnmodified("{LButton Up}")
         lbtnDown := false
@@ -260,12 +265,16 @@ ReleaseMouseButtons() {
         SendUnmodified("{RButton Up}")
         rbtnDown := false
     }
+    if mbtnDown {
+        SendUnmodified("{MButton Up}")
+        mbtnDown := false
+    }
 }
 
-; Press (and keep holding) a mouse button. Guarded so Tab+key auto-repeat does
-; not emit a stream of Down events.
+; Press (and keep holding) a mouse button. Guarded so key auto-repeat does not
+; emit a stream of Down events.
 PressMouseBtn(which) {
-    global lbtnDown, rbtnDown, tabUsed
+    global lbtnDown, rbtnDown, mbtnDown, tabUsed
     tabUsed := true
     if (which = "Left" && !lbtnDown) {
         SendUnmodified("{LButton Down}")
@@ -273,14 +282,20 @@ PressMouseBtn(which) {
     } else if (which = "Right" && !rbtnDown) {
         SendUnmodified("{RButton Down}")
         rbtnDown := true
+    } else if (which = "Middle" && !mbtnDown) {
+        SendUnmodified("{MButton Down}")
+        mbtnDown := true
     }
 }
 
 ReleaseMouseBtn(which) {
-    global lbtnDown, rbtnDown
+    global lbtnDown, rbtnDown, mbtnDown
     if (which = "Left" && lbtnDown) {
         SendUnmodified("{LButton Up}")
         lbtnDown := false
+    } else if (which = "Middle" && mbtnDown) {
+        SendUnmodified("{MButton Up}")
+        mbtnDown := false
     } else if (which = "Right" && rbtnDown) {
         SendUnmodified("{RButton Up}")
         rbtnDown := false
@@ -291,7 +306,7 @@ ReleaseMouseBtn(which) {
 ; scrolling stay smooth regardless of key-repeat timing. Movement and scroll
 ; are handled independently so you can do either, both, or neither per tick.
 MouseTick(*) {
-    global mouseCurSpd, scrollCurSpd, scrollAccum, scrolling, tabUsed, mouseToggleMode, lbtnDown, rbtnDown
+    global mouseCurSpd, scrollCurSpd, scrollAccum, scrolling, tabUsed, mouseToggleMode, lbtnDown, rbtnDown, mbtnDown
     ; The layer is live while EITHER entry method holds it open: Tab physically
     ; down, OR mouse mode toggled on AND a toggle-modifier (CapsLock/RAlt) still
     ; physically held. Releasing the modifier therefore exits mouse mode.
@@ -365,15 +380,19 @@ MouseTick(*) {
         scrollAccum := 0.0
     }
 
-    ; --- release held buttons once their key is let go (ends a drag) ---
+    ; --- release held buttons once their key(s) are let go (ends a drag) ---
     ; The button DOWN is triggered instantly by the per-mode hotkeys; release is
     ; polled here from the physical key state because CapsLock custom-combination
     ; "up" events fire early while the suffix auto-repeats, which would otherwise
     ; drop the button mid-drag. Polling is reliable for every entry method.
-    if (lbtnDown && !GetKeyState("u", "P"))
+    ; Each button has a right-hand key and a left-hand key; release only once
+    ; neither is held (so you can even hand off a drag between hands).
+    if (lbtnDown && !GetKeyState("u", "P") && !GetKeyState("f", "P"))
         ReleaseMouseBtn("Left")
-    if (rbtnDown && !GetKeyState("o", "P"))
+    if (rbtnDown && !GetKeyState("o", "P") && !GetKeyState("d", "P"))
         ReleaseMouseBtn("Right")
+    if (mbtnDown && !GetKeyState("s", "P"))
+        ReleaseMouseBtn("Middle")
 }
 
 ; Tab itself: arm the layer on press, disarm (and maybe emit Tab) on release.
@@ -382,10 +401,13 @@ Tab::StartMouseLayer()
 Tab up::EndMouseLayer()
 #HotIf
 
-; While Tab is physically held (and no modifier), the right-hand keys drive the
-; mouse instead of typing: i/j/k/l are swallowed (the timer reads them), while
-; u/o press the buttons on key-down (the timer releases them when let go, so
-; both tap-to-click and hold-to-drag work).
+; While Tab is physically held (and no modifier), these keys drive the mouse
+; instead of typing: i/j/k/l are swallowed (the timer reads them for movement).
+; Buttons can be clicked with either hand -- right hand: u = left, o = right;
+; left hand: f = left, d = right, s = middle. Each press fires on key-down; the
+; timer releases on key-up, so tap-to-click and hold-to-drag both work, and the
+; left/right-hand split makes dragging (hold button one hand, move the other)
+; comfortable.
 #HotIf GetKeyState("Tab", "P") && NoModsHeld()
 i::return
 j::return
@@ -395,6 +417,9 @@ p::return    ; scroll up   (handled by the timer)
 `;::return   ; scroll down (handled by the timer)
 u::PressMouseBtn("Left")
 o::PressMouseBtn("Right")
+f::PressMouseBtn("Left")
+d::PressMouseBtn("Right")
+s::PressMouseBtn("Middle")
 #HotIf
 
 ; ============================================
@@ -432,6 +457,9 @@ CapsLock & p::return    ; scroll up   (handled by the timer)
 CapsLock & `;::return   ; scroll down (handled by the timer)
 CapsLock & u::PressMouseBtn("Left")
 CapsLock & o::PressMouseBtn("Right")
+CapsLock & f::PressMouseBtn("Left")
+CapsLock & d::PressMouseBtn("Right")
+CapsLock & s::PressMouseBtn("Middle")
 ; --- RAlt variants (same overrides, RAlt hotkey syntax) ---
 >*!i::return
 >*!j::return
@@ -441,4 +469,7 @@ CapsLock & o::PressMouseBtn("Right")
 >*!`;::return           ; scroll down (handled by the timer)
 >*!u::PressMouseBtn("Left")
 >*!o::PressMouseBtn("Right")
+>*!f::PressMouseBtn("Left")
+>*!d::PressMouseBtn("Right")
+>*!s::PressMouseBtn("Middle")
 #HotIf
