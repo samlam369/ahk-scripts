@@ -151,7 +151,20 @@ MOUSE_MIN_SPD := 1.5    ; starting speed in px per tick
 MOUSE_MAX_SPD := 30     ; top speed in px per tick
 MOUSE_ACCEL   := 1.07   ; speed multiplier applied each tick while moving
 
+; Scrolling is discrete: one {WheelUp}/{WheelDown} is a single wheel notch
+; (~3 lines in most apps). We accumulate fractional notches per tick and only
+; emit a whole notch once the accumulator reaches 1, which gives smooth,
+; accelerating scroll speed without flooding the app with notches.
+; The first notch fires immediately on key-down (no accumulation delay); these
+; only govern the repeat rate while you keep holding.
+SCROLL_MIN_SPD := 0.10   ; starting notches per tick  (~10 notches/sec)
+SCROLL_MAX_SPD := 0.40   ; top notches per tick       (~40 notches/sec)
+SCROLL_ACCEL   := 1.05   ; speed multiplier applied each tick while scrolling
+
 mouseCurSpd    := MOUSE_MIN_SPD
+scrollCurSpd   := SCROLL_MIN_SPD
+scrollAccum    := 0.0     ; fractional notches carried between ticks
+scrolling      := false   ; were we already scrolling last tick?
 tabLayerActive := false   ; guards StartMouseLayer against Tab key-repeat
 tabUsed        := false   ; did this Tab press drive the mouse layer?
 lbtnDown       := false   ; is the left  button currently held down by us?
@@ -163,11 +176,15 @@ NoModsHeld() => !(GetKeyState("Ctrl", "P") || GetKeyState("Alt", "P")
     || GetKeyState("Shift", "P") || GetKeyState("LWin", "P") || GetKeyState("RWin", "P"))
 
 StartMouseLayer() {
-    global tabLayerActive, tabUsed
+    global tabLayerActive, tabUsed, mouseCurSpd, scrollCurSpd, scrollAccum, scrolling
     if tabLayerActive          ; ignore auto-repeat while Tab is held down
         return
     tabLayerActive := true
     tabUsed := false
+    mouseCurSpd := MOUSE_MIN_SPD
+    scrollCurSpd := SCROLL_MIN_SPD
+    scrollAccum := 0.0
+    scrolling := false
     SetTimer(MouseTick, MOUSE_TICK_MS)
 }
 
@@ -218,16 +235,22 @@ ReleaseMouseBtn(which) {
     }
 }
 
-; Movement: polls physical keys each tick so diagonals and acceleration stay
-; smooth regardless of key-repeat timing.
+; Polls physical keys each tick so movement (diagonals + acceleration) and
+; scrolling stay smooth regardless of key-repeat timing. Movement and scroll
+; are handled independently so you can do either, both, or neither per tick.
 MouseTick(*) {
-    global mouseCurSpd, tabUsed
+    global mouseCurSpd, scrollCurSpd, scrollAccum, scrolling, tabUsed
     if !GetKeyState("Tab", "P") {       ; safety net: Tab no longer held
         SetTimer(MouseTick, 0)
         ReleaseMouseButtons()
         mouseCurSpd := MOUSE_MIN_SPD
+        scrollCurSpd := SCROLL_MIN_SPD
+        scrollAccum := 0.0
+        scrolling := false
         return
     }
+
+    ; --- cursor movement (i/j/k/l) ---
     dx := 0, dy := 0
     if GetKeyState("i", "P")
         dy -= 1
@@ -237,20 +260,44 @@ MouseTick(*) {
         dx -= 1
     if GetKeyState("l", "P")
         dx += 1
-    if (dx = 0 && dy = 0) {
+    if (dx != 0 || dy != 0) {
+        tabUsed := true
+        mouseCurSpd := Min(mouseCurSpd * MOUSE_ACCEL, MOUSE_MAX_SPD)
+        if (dx != 0 && dy != 0) {       ; keep diagonals the same speed
+            dx *= 0.7071
+            dy *= 0.7071
+        }
+        moveX := Round(dx * mouseCurSpd)
+        moveY := Round(dy * mouseCurSpd)
+        if (moveX != 0 || moveY != 0)
+            MouseMove(moveX, moveY, 0, "R")
+    } else {
         mouseCurSpd := MOUSE_MIN_SPD    ; reset acceleration when idle
-        return
     }
-    tabUsed := true
-    mouseCurSpd := Min(mouseCurSpd * MOUSE_ACCEL, MOUSE_MAX_SPD)
-    if (dx != 0 && dy != 0) {           ; keep diagonals the same speed
-        dx *= 0.7071
-        dy *= 0.7071
+
+    ; --- scroll wheel (p = up, ; = down) ---
+    sdir := 0
+    if GetKeyState("p", "P")
+        sdir += 1
+    if GetKeyState(";", "P")            ; semicolon key
+        sdir -= 1
+    if (sdir != 0) {
+        tabUsed := true
+        if !scrolling {                  ; just started -> notch immediately
+            scrolling := true
+            scrollAccum += 1
+        }
+        scrollCurSpd := Min(scrollCurSpd * SCROLL_ACCEL, SCROLL_MAX_SPD)
+        scrollAccum += scrollCurSpd
+        while (scrollAccum >= 1) {       ; emit whole notches only
+            SendInput(sdir > 0 ? "{WheelUp}" : "{WheelDown}")
+            scrollAccum -= 1
+        }
+    } else {
+        scrolling := false
+        scrollCurSpd := SCROLL_MIN_SPD
+        scrollAccum := 0.0
     }
-    moveX := Round(dx * mouseCurSpd)
-    moveY := Round(dy * mouseCurSpd)
-    if (moveX != 0 || moveY != 0)
-        MouseMove(moveX, moveY, 0, "R")
 }
 
 ; Tab itself: arm the layer on press, disarm (and maybe emit Tab) on release.
@@ -267,6 +314,8 @@ i::return
 j::return
 k::return
 l::return
+p::return    ; scroll up   (handled by the timer)
+`;::return   ; scroll down (handled by the timer)
 u::PressMouseBtn("Left")
 u up::ReleaseMouseBtn("Left")
 o::PressMouseBtn("Right")
