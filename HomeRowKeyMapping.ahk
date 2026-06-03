@@ -169,6 +169,12 @@ tabLayerActive := false   ; guards StartMouseLayer against Tab key-repeat
 tabUsed        := false   ; did this Tab press drive the mouse layer?
 lbtnDown       := false   ; is the left  button currently held down by us?
 rbtnDown       := false   ; is the right button currently held down by us?
+mouseToggleMode := false  ; m-toggle entry (CapsLock or RAlt): in mouse mode now?
+mKeyDown        := false  ; guards the m toggle against auto-repeat
+
+; The mouse-mode ToolTip follows the cursor, so work in screen coordinates.
+CoordMode("Mouse", "Screen")
+CoordMode("ToolTip", "Screen")
 
 ; True only when none of Ctrl / Alt / Shift / Win are physically down, so that
 ; modifier+Tab combos pass straight through to Windows.
@@ -198,14 +204,60 @@ EndMouseLayer() {
         SendInput("{Tab}")
 }
 
+; Second entry point: while holding CapsLock OR RAlt, tap m to toggle mouse mode
+; on/off. Mode lasts only for the current modifier hold (MouseTick clears it the
+; moment both CapsLock and RAlt are released). Turning off just lets MouseTick
+; self-stop on the next tick.
+ToggleMouseMode() {
+    global mouseToggleMode, mouseCurSpd, scrollCurSpd, scrollAccum, scrolling
+    mouseToggleMode := !mouseToggleMode
+    if mouseToggleMode {
+        mouseCurSpd := MOUSE_MIN_SPD
+        scrollCurSpd := SCROLL_MIN_SPD
+        scrollAccum := 0.0
+        scrolling := false
+        SetTimer(MouseTick, MOUSE_TICK_MS)
+    }
+}
+
+; Guarded m-tap toggle, shared by the CapsLock and RAlt entry hotkeys; mKeyDown
+; stops auto-repeat from flickering the mode while m is held.
+GuardedToggle() {
+    global mKeyDown
+    if mKeyDown
+        return
+    mKeyDown := true
+    ToggleMouseMode()
+}
+ReleaseMKey() {
+    global mKeyDown
+    mKeyDown := false
+}
+
+; True while either toggle-modifier is physically held, i.e. the mouse mode is
+; still being "held open" after an m-tap entry.
+ToggleModHeld() => GetKeyState("CapsLock", "P") || GetKeyState("RAlt", "P")
+
+; Send a mouse action (click / wheel) with RAlt momentarily neutralised, so apps
+; never see Alt+Click / Alt+Wheel while in RAlt mouse mode. Done as one atomic
+; SendInput so the {RAlt up}..{RAlt down} window can't let the >*! overrides drop
+; out. {Blind} leaves any other held modifiers (Shift/Ctrl/Win) untouched. When
+; RAlt isn't physically held (Tab / CapsLock modes) it just sends directly.
+SendUnmodified(action) {
+    if GetKeyState("RAlt", "P")
+        SendInput("{Blind}{RAlt up}" action "{RAlt down}")
+    else
+        SendInput(action)
+}
+
 ReleaseMouseButtons() {
     global lbtnDown, rbtnDown
     if lbtnDown {
-        SendInput("{LButton Up}")
+        SendUnmodified("{LButton Up}")
         lbtnDown := false
     }
     if rbtnDown {
-        SendInput("{RButton Up}")
+        SendUnmodified("{RButton Up}")
         rbtnDown := false
     }
 }
@@ -216,10 +268,10 @@ PressMouseBtn(which) {
     global lbtnDown, rbtnDown, tabUsed
     tabUsed := true
     if (which = "Left" && !lbtnDown) {
-        SendInput("{LButton Down}")
+        SendUnmodified("{LButton Down}")
         lbtnDown := true
     } else if (which = "Right" && !rbtnDown) {
-        SendInput("{RButton Down}")
+        SendUnmodified("{RButton Down}")
         rbtnDown := true
     }
 }
@@ -227,10 +279,10 @@ PressMouseBtn(which) {
 ReleaseMouseBtn(which) {
     global lbtnDown, rbtnDown
     if (which = "Left" && lbtnDown) {
-        SendInput("{LButton Up}")
+        SendUnmodified("{LButton Up}")
         lbtnDown := false
     } else if (which = "Right" && rbtnDown) {
-        SendInput("{RButton Up}")
+        SendUnmodified("{RButton Up}")
         rbtnDown := false
     }
 }
@@ -239,15 +291,26 @@ ReleaseMouseBtn(which) {
 ; scrolling stay smooth regardless of key-repeat timing. Movement and scroll
 ; are handled independently so you can do either, both, or neither per tick.
 MouseTick(*) {
-    global mouseCurSpd, scrollCurSpd, scrollAccum, scrolling, tabUsed
-    if !GetKeyState("Tab", "P") {       ; safety net: Tab no longer held
+    global mouseCurSpd, scrollCurSpd, scrollAccum, scrolling, tabUsed, mouseToggleMode
+    ; The layer is live while EITHER entry method holds it open: Tab physically
+    ; down, OR mouse mode toggled on AND a toggle-modifier (CapsLock/RAlt) still
+    ; physically held. Releasing the modifier therefore exits mouse mode.
+    if !(GetKeyState("Tab", "P") || (mouseToggleMode && ToggleModHeld())) {
         SetTimer(MouseTick, 0)
         ReleaseMouseButtons()
+        mouseToggleMode := false
+        ToolTip()                       ; clear the mouse-mode indicator
         mouseCurSpd := MOUSE_MIN_SPD
         scrollCurSpd := SCROLL_MIN_SPD
         scrollAccum := 0.0
         scrolling := false
         return
+    }
+
+    ; Show a cursor-following indicator only for the (stateful) toggle mode.
+    if mouseToggleMode {
+        MouseGetPos(&tipX, &tipY)
+        ToolTip("🖱 MOUSE", tipX + 32, tipY + 32)
     }
 
     ; --- cursor movement (i/j/k/l) ---
@@ -289,10 +352,13 @@ MouseTick(*) {
         }
         scrollCurSpd := Min(scrollCurSpd * SCROLL_ACCEL, SCROLL_MAX_SPD)
         scrollAccum += scrollCurSpd
-        while (scrollAccum >= 1) {       ; emit whole notches only
-            SendInput(sdir > 0 ? "{WheelUp}" : "{WheelDown}")
+        notches := ""                    ; batch whole notches into one send
+        while (scrollAccum >= 1) {
+            notches .= (sdir > 0 ? "{WheelUp}" : "{WheelDown}")
             scrollAccum -= 1
         }
+        if (notches != "")
+            SendUnmodified(notches)
     } else {
         scrolling := false
         scrollCurSpd := SCROLL_MIN_SPD
@@ -320,4 +386,54 @@ u::PressMouseBtn("Left")
 u up::ReleaseMouseBtn("Left")
 o::PressMouseBtn("Right")
 o up::ReleaseMouseBtn("Right")
+#HotIf
+
+; ============================================
+; Alternative entry: CapsLock or RAlt + m toggles mouse mode (no reach for Tab)
+; ============================================
+; Tap m while holding CapsLock OR RAlt to enter/exit mouse mode. While in mouse
+; mode, the usual CapsLock/RAlt + ijkluop; mappings are overridden to drive the
+; mouse; tap m again (or release the modifier) to leave. This block is fully
+; self-contained, so either entry method can be deleted later without touching
+; the other.
+;
+; How the override works: the modifier+key mappings created in RegisterHotkeys
+; have no #HotIf criterion, so AHK treats them as the lowest-priority fallback.
+; The #HotIf mouseToggleMode variants below therefore win whenever mouse mode is
+; on, and fall back to the normal arrow/Home/End behaviour when it is off.
+;
+; NOTE: RAlt is a real Alt key, so it stays physically down during mouse mode.
+; To stop apps seeing Alt+Click / Alt+Wheel (e.g. a browser treating Alt+Click
+; on a link as "download"), every click/scroll is sent via SendUnmodified(),
+; which momentarily lifts RAlt for the action only. Movement needs no such care.
+
+; The toggle must work in BOTH states, so these stay global (no #HotIf).
+CapsLock & m::GuardedToggle()
+CapsLock & m up::ReleaseMKey()
+>*!m::GuardedToggle()
+>*!m up::ReleaseMKey()
+
+#HotIf mouseToggleMode
+; --- CapsLock variants (override the arrow/Home/End/etc. mappings) ---
+CapsLock & i::return
+CapsLock & j::return
+CapsLock & k::return
+CapsLock & l::return
+CapsLock & p::return    ; scroll up   (handled by the timer)
+CapsLock & `;::return   ; scroll down (handled by the timer)
+CapsLock & u::PressMouseBtn("Left")
+CapsLock & u up::ReleaseMouseBtn("Left")
+CapsLock & o::PressMouseBtn("Right")
+CapsLock & o up::ReleaseMouseBtn("Right")
+; --- RAlt variants (same overrides, RAlt hotkey syntax) ---
+>*!i::return
+>*!j::return
+>*!k::return
+>*!l::return
+>*!p::return            ; scroll up   (handled by the timer)
+>*!`;::return           ; scroll down (handled by the timer)
+>*!u::PressMouseBtn("Left")
+>*!u up::ReleaseMouseBtn("Left")
+>*!o::PressMouseBtn("Right")
+>*!o up::ReleaseMouseBtn("Right")
 #HotIf
