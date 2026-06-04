@@ -130,6 +130,7 @@ RCtrl::LWin
 ; ============================================
 ; Hold Tab and drive the mouse:
 ;   Tab + i / j / k / l  -> move cursor up / left / down / right (accelerates)
+;   Tab + q (held)       -> quick mode: multiply movement speed (MOUSE_QUICK_MULT)
 ;   Tab + p / ;          -> scroll up / down (accelerates)
 ;   Tab + u  or  f       -> left   button: tap = click, hold = press-and-drag
 ;   Tab + o  or  d       -> right  button: tap = click, hold = press-and-drag
@@ -151,9 +152,10 @@ RCtrl::LWin
 
 ; --- Tunables (tweak to taste) ---
 MOUSE_TICK_MS := 10     ; cursor update interval in ms; lower = smoother
-MOUSE_MIN_SPD := 1.5    ; starting speed in px per tick
-MOUSE_MAX_SPD := 30     ; top speed in px per tick
-MOUSE_ACCEL   := 1.07   ; speed multiplier applied each tick while moving
+MOUSE_MIN_SPD := 4.0    ; starting speed in px per tick
+MOUSE_MAX_SPD := 50     ; top speed in px per tick
+MOUSE_ACCEL   := 1.01   ; speed multiplier applied each tick while moving
+MOUSE_QUICK_MULT := 10  ; hold q (quick) to multiply movement speed by this
 
 ; Scrolling is discrete: one {WheelUp}/{WheelDown} is a single wheel notch
 ; (~3 lines in most apps). We accumulate fractional notches per tick and only
@@ -203,6 +205,8 @@ EndMouseLayer() {
     global tabLayerActive, tabUsed, mouseCurSpd
     SetTimer(MouseTick, 0)
     ReleaseMouseButtons()
+    ToolTip()                  ; clear the indicator (timer is stopped, so
+                               ; MouseTick's own clear-path won't run for Tab)
     mouseCurSpd := MOUSE_MIN_SPD
     tabLayerActive := false
     if !tabUsed                ; Tab was tapped on its own -> emit a real Tab
@@ -322,11 +326,12 @@ MouseTick(*) {
         return
     }
 
-    ; Show a cursor-following indicator only for the (stateful) toggle mode.
-    if mouseToggleMode {
-        MouseGetPos(&tipX, &tipY)
-        ToolTip("🖱 MOUSE", tipX + 32, tipY + 32)
-    }
+    ; Cursor-following indicator. Shown for every entry method (incl. Tab) and
+    ; the tail reports the current speed multiplier (1x normally, MOUSE_QUICK_MULT
+    ; while q is held) so quick mode is visible while debugging.
+    mult := GetKeyState("q", "P") ? MOUSE_QUICK_MULT : 1
+    MouseGetPos(&tipX, &tipY)
+    ToolTip("🖱 MOUSE  " mult "x", tipX + 32, tipY + 32)
 
     ; --- cursor movement (i/j/k/l) ---
     dx := 0, dy := 0
@@ -345,8 +350,12 @@ MouseTick(*) {
             dx *= 0.7071
             dy *= 0.7071
         }
-        moveX := Round(dx * mouseCurSpd)
-        moveY := Round(dy * mouseCurSpd)
+        ; Quick mode: hold q to scale the effective speed. Applied to the output
+        ; only (not to mouseCurSpd) so acceleration state stays clean and the
+        ; boost turns on/off instantly as q is pressed/released.
+        effSpd := GetKeyState("q", "P") ? mouseCurSpd * MOUSE_QUICK_MULT : mouseCurSpd
+        moveX := Round(dx * effSpd)
+        moveY := Round(dy * effSpd)
         if (moveX != 0 || moveY != 0)
             MouseMove(moveX, moveY, 0, "R")
     } else {
@@ -415,6 +424,7 @@ k::return
 l::return
 p::return    ; scroll up   (handled by the timer)
 `;::return   ; scroll down (handled by the timer)
+q::return    ; quick-mode speed boost (read by the timer)
 u::PressMouseBtn("Left")
 o::PressMouseBtn("Right")
 f::PressMouseBtn("Left")
@@ -455,6 +465,7 @@ CapsLock & k::return
 CapsLock & l::return
 CapsLock & p::return    ; scroll up   (handled by the timer)
 CapsLock & `;::return   ; scroll down (handled by the timer)
+CapsLock & q::return    ; quick-mode speed boost (read by the timer)
 CapsLock & u::PressMouseBtn("Left")
 CapsLock & o::PressMouseBtn("Right")
 CapsLock & f::PressMouseBtn("Left")
@@ -467,6 +478,7 @@ CapsLock & s::PressMouseBtn("Middle")
 >*!l::return
 >*!p::return            ; scroll up   (handled by the timer)
 >*!`;::return           ; scroll down (handled by the timer)
+>*!q::return            ; quick-mode speed boost (read by the timer)
 >*!u::PressMouseBtn("Left")
 >*!o::PressMouseBtn("Right")
 >*!f::PressMouseBtn("Left")
