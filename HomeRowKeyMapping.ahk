@@ -132,6 +132,7 @@ RCtrl::LWin
 ;   Tab + i / j / k / l  -> move cursor up / left / down / right (accelerates)
 ;   Tab + q (held)       -> quick mode: multiply movement speed (MOUSE_QUICK_MULT)
 ;   Tab + p / ;          -> scroll up / down (accelerates)
+;   Tab + [ / ]          -> pinch zoom in / out (synthesized two-finger touch)
 ;   Tab + u  or  f       -> left   button: tap = click, hold = press-and-drag
 ;   Tab + o  or  d       -> right  button: tap = click, hold = press-and-drag
 ;   Tab + s              -> middle button: tap = click, hold = press-and-drag
@@ -154,8 +155,8 @@ RCtrl::LWin
 MOUSE_TICK_MS := 10     ; cursor update interval in ms; lower = smoother
 MOUSE_MIN_SPD := 4.0    ; starting speed in px per tick
 MOUSE_MAX_SPD := 50     ; top speed in px per tick
-MOUSE_ACCEL   := 1.01   ; speed multiplier applied each tick while moving
-MOUSE_QUICK_MULT := 10  ; hold q (quick) to multiply movement speed by this
+MOUSE_ACCEL   := 1.05   ; speed multiplier applied each tick while moving
+MOUSE_QUICK_MULT := 8   ; hold q (quick) to multiply movement speed by this
 
 ; Scrolling is discrete: one {WheelUp}/{WheelDown} is a single wheel notch
 ; (~3 lines in most apps). We accumulate fractional notches per tick and only
@@ -178,10 +179,120 @@ rbtnDown       := false   ; is the right  button currently held down by us?
 mbtnDown       := false   ; is the middle button currently held down by us?
 mouseToggleMode := false  ; m-toggle entry (CapsLock or RAlt): in mouse mode now?
 mKeyDown        := false  ; guards the m toggle against auto-repeat
+pinchActive    := false   ; is a synthesized two-finger pinch currently down?
+pinchDir       := 0       ; +1 = pinch out (zoom in), -1 = pinch in (zoom out)
+pinchHalf      := 0       ; current half-distance between the two contacts (px)
+pinchCX        := 0       ; pinch center X (screen)
+pinchCY        := 0       ; pinch center Y (screen)
 
 ; The mouse-mode ToolTip follows the cursor, so work in screen coordinates.
 CoordMode("Mouse", "Screen")
 CoordMode("ToolTip", "Screen")
+
+; ============================================
+; Pinch-zoom via Touch Injection ( [ = zoom in, ] = zoom out )
+; ============================================
+; Synthesizes a real two-finger pinch so browsers do *visual* zoom (scale the
+; rendered pixels, content goes out of viewport) rather than Ctrl+scroll "page
+; zoom" which reflows the layout. Two touch contacts are placed around the
+; cursor and spread apart (zoom in) or drawn together (zoom out) each tick.
+;
+; NOTE: injected touch does NOT travel over RDP / Guacamole, so this is a no-op
+; in a remote session (InjectTouchInput just returns 0). That can't break
+; anything, so it isn't gated -- only acknowledged here. Local use only.
+
+; --- Pinch tunables ---
+PINCH_SPEED     := 4      ; px each contact moves outward/inward per tick
+PINCH_MIN_HALF  := 20     ; floor on half-distance (avoids pan/right-click reads)
+PINCH_MAX_HALF  := 600    ; cap so contacts don't fly off-screen
+PINCH_START_IN  := 60     ; zoom-IN starts narrow and spreads out
+PINCH_START_OUT := 300    ; zoom-OUT must start WIDE and converge, else the small
+                          ; inward move reads as a two-finger pan, not a pinch
+
+; --- Touch Injection constants / setup (see PinchZoomPOC.ahk for struct notes) ---
+TOUCH_INFO_SIZE := 144                 ; sizeof(POINTER_TOUCH_INFO) on x64
+PT_TOUCH := 2
+POINTER_FLAG_INRANGE   := 0x00000002
+POINTER_FLAG_INCONTACT := 0x00000004
+POINTER_FLAG_DOWN      := 0x00010000
+POINTER_FLAG_UPDATE    := 0x00020000
+POINTER_FLAG_UP        := 0x00040000
+TOUCH_MASK_CONTACTAREA := 0x00000001
+TOUCH_MASK_PRESSURE    := 0x00000004
+
+; InitializeTouchInjection(maxCount, dwMode=TOUCH_FEEDBACK_DEFAULT). Once only.
+DllCall("InitializeTouchInjection", "UInt", 2, "UInt", 1)
+
+; Two reusable contact buffers; only flags + position change per tick.
+pinchC0 := Buffer(TOUCH_INFO_SIZE, 0)
+pinchC1 := Buffer(TOUCH_INFO_SIZE, 0)
+InitPinchContact(pinchC0, 0)
+InitPinchContact(pinchC1, 1)
+
+InitPinchContact(buf, id) {
+    global PT_TOUCH, TOUCH_MASK_CONTACTAREA, TOUCH_MASK_PRESSURE
+    NumPut("UInt", PT_TOUCH, buf, 0)               ; pointerType
+    NumPut("UInt", id,       buf, 4)               ; pointerId
+    NumPut("UInt", TOUCH_MASK_CONTACTAREA | TOUCH_MASK_PRESSURE, buf, 100) ; touchMask
+    NumPut("UInt", 32000,    buf, 140)             ; pressure
+}
+
+SetPinchContact(buf, flags, x, y) {
+    NumPut("UInt", flags, buf, 12)   ; pointerFlags
+    NumPut("Int",  x,     buf, 32)   ; ptPixelLocation.x
+    NumPut("Int",  y,     buf, 36)   ; ptPixelLocation.y
+    NumPut("Int", x - 2, buf, 104)   ; rcContact (small square)
+    NumPut("Int", y - 2, buf, 108)
+    NumPut("Int", x + 2, buf, 112)
+    NumPut("Int", y + 2, buf, 116)
+}
+
+InjectPinch() {
+    global pinchC0, pinchC1, TOUCH_INFO_SIZE
+    frame := Buffer(TOUCH_INFO_SIZE * 2, 0)
+    DllCall("RtlMoveMemory", "Ptr", frame.Ptr,                   "Ptr", pinchC0.Ptr, "UPtr", TOUCH_INFO_SIZE)
+    DllCall("RtlMoveMemory", "Ptr", frame.Ptr + TOUCH_INFO_SIZE, "Ptr", pinchC1.Ptr, "UPtr", TOUCH_INFO_SIZE)
+    DllCall("InjectTouchInput", "UInt", 2, "Ptr", frame.Ptr)
+}
+
+; Lay both contacts down (already separated), centered on the cursor. The next
+; MouseTick moves them, so there is no static dwell to be read as press-and-hold.
+StartPinch(dir) {
+    global pinchActive, pinchDir, pinchHalf, pinchCX, pinchCY, pinchC0, pinchC1
+    global PINCH_START_IN, PINCH_START_OUT
+    global POINTER_FLAG_DOWN, POINTER_FLAG_INRANGE, POINTER_FLAG_INCONTACT
+    pinchActive := true
+    pinchDir := dir
+    pinchHalf := (dir > 0) ? PINCH_START_IN : PINCH_START_OUT
+    MouseGetPos(&pinchCX, &pinchCY)
+    downFlags := POINTER_FLAG_DOWN | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT
+    SetPinchContact(pinchC0, downFlags, pinchCX - pinchHalf, pinchCY)
+    SetPinchContact(pinchC1, downFlags, pinchCX + pinchHalf, pinchCY)
+    InjectPinch()
+}
+
+UpdatePinch() {
+    global pinchActive, pinchDir, pinchHalf, pinchCX, pinchCY, pinchC0, pinchC1
+    global PINCH_SPEED, PINCH_MIN_HALF, PINCH_MAX_HALF
+    global POINTER_FLAG_UPDATE, POINTER_FLAG_INRANGE, POINTER_FLAG_INCONTACT
+    if !pinchActive
+        return
+    pinchHalf := Max(PINCH_MIN_HALF, Min(PINCH_MAX_HALF, pinchHalf + pinchDir * PINCH_SPEED))
+    updFlags := POINTER_FLAG_UPDATE | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT
+    SetPinchContact(pinchC0, updFlags, pinchCX - pinchHalf, pinchCY)
+    SetPinchContact(pinchC1, updFlags, pinchCX + pinchHalf, pinchCY)
+    InjectPinch()
+}
+
+EndPinch() {
+    global pinchActive, pinchHalf, pinchCX, pinchCY, pinchC0, pinchC1, POINTER_FLAG_UP
+    if !pinchActive
+        return
+    SetPinchContact(pinchC0, POINTER_FLAG_UP, pinchCX - pinchHalf, pinchCY)
+    SetPinchContact(pinchC1, POINTER_FLAG_UP, pinchCX + pinchHalf, pinchCY)
+    InjectPinch()
+    pinchActive := false
+}
 
 ; True only when none of Ctrl / Alt / Shift / Win are physically down, so that
 ; modifier+Tab combos pass straight through to Windows.
@@ -205,6 +316,7 @@ EndMouseLayer() {
     global tabLayerActive, tabUsed, mouseCurSpd
     SetTimer(MouseTick, 0)
     ReleaseMouseButtons()
+    EndPinch()                 ; lift any held pinch so it can't stick
     ToolTip()                  ; clear the indicator (timer is stopped, so
                                ; MouseTick's own clear-path won't run for Tab)
     mouseCurSpd := MOUSE_MIN_SPD
@@ -310,13 +422,14 @@ ReleaseMouseBtn(which) {
 ; scrolling stay smooth regardless of key-repeat timing. Movement and scroll
 ; are handled independently so you can do either, both, or neither per tick.
 MouseTick(*) {
-    global mouseCurSpd, scrollCurSpd, scrollAccum, scrolling, tabUsed, mouseToggleMode, lbtnDown, rbtnDown, mbtnDown
+    global mouseCurSpd, scrollCurSpd, scrollAccum, scrolling, tabUsed, mouseToggleMode, lbtnDown, rbtnDown, mbtnDown, pinchActive
     ; The layer is live while EITHER entry method holds it open: Tab physically
     ; down, OR mouse mode toggled on AND a toggle-modifier (CapsLock/RAlt) still
     ; physically held. Releasing the modifier therefore exits mouse mode.
     if !(GetKeyState("Tab", "P") || (mouseToggleMode && ToggleModHeld())) {
         SetTimer(MouseTick, 0)
         ReleaseMouseButtons()
+        EndPinch()                      ; lift any held pinch so it can't stick
         mouseToggleMode := false
         ToolTip()                       ; clear the mouse-mode indicator
         mouseCurSpd := MOUSE_MIN_SPD
@@ -402,6 +515,22 @@ MouseTick(*) {
         ReleaseMouseBtn("Right")
     if (mbtnDown && !GetKeyState("s", "P"))
         ReleaseMouseBtn("Middle")
+
+    ; --- pinch zoom ( [ = zoom in, ] = zoom out ), polled like the buttons ---
+    ; First press lays the contacts down; subsequent ticks spread/converge them;
+    ; releasing both keys lifts the contacts (ends the gesture). [ wins if both
+    ; are held. Polling here avoids the CapsLock early-"up" problem.
+    pinchIn  := GetKeyState("[", "P")
+    pinchOut := GetKeyState("]", "P")
+    if (pinchIn || pinchOut) {
+        tabUsed := true
+        if !pinchActive
+            StartPinch(pinchIn ? 1 : -1)
+        else
+            UpdatePinch()
+    } else if pinchActive {
+        EndPinch()
+    }
 }
 
 ; Tab itself: arm the layer on press, disarm (and maybe emit Tab) on release.
@@ -425,6 +554,8 @@ l::return
 p::return    ; scroll up   (handled by the timer)
 `;::return   ; scroll down (handled by the timer)
 q::return    ; quick-mode speed boost (read by the timer)
+[::return    ; pinch zoom in  (handled by the timer)
+]::return    ; pinch zoom out (handled by the timer)
 u::PressMouseBtn("Left")
 o::PressMouseBtn("Right")
 f::PressMouseBtn("Left")
@@ -466,6 +597,8 @@ CapsLock & l::return
 CapsLock & p::return    ; scroll up   (handled by the timer)
 CapsLock & `;::return   ; scroll down (handled by the timer)
 CapsLock & q::return    ; quick-mode speed boost (read by the timer)
+CapsLock & [::return    ; pinch zoom in  (handled by the timer)
+CapsLock & ]::return    ; pinch zoom out (handled by the timer)
 CapsLock & u::PressMouseBtn("Left")
 CapsLock & o::PressMouseBtn("Right")
 CapsLock & f::PressMouseBtn("Left")
@@ -479,6 +612,8 @@ CapsLock & s::PressMouseBtn("Middle")
 >*!p::return            ; scroll up   (handled by the timer)
 >*!`;::return           ; scroll down (handled by the timer)
 >*!q::return            ; quick-mode speed boost (read by the timer)
+>*![::return            ; pinch zoom in  (handled by the timer)
+>*!]::return            ; pinch zoom out (handled by the timer)
 >*!u::PressMouseBtn("Left")
 >*!o::PressMouseBtn("Right")
 >*!f::PressMouseBtn("Left")
