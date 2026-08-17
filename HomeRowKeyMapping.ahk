@@ -74,12 +74,12 @@ SafePaste(txt) {
     A_Clipboard := SavedClip ; Restore original clipboard
 }
 
-; Helper function to create code block structure
-CreateCodeBlock() {
-    ; SendText sends raw characters (like `n for newline) which is more reliable than simulating Enter keys.
-    ; This avoids triggering "Send" buttons in most chat apps.
-    SendText("`n`n``````" . "`n`n" . "``````" . "`n`n")
-    SendInput("{Up 3}")
+; Helper function to create inline code and paste content
+CreateInlineCodeWithPaste() {
+    ; Construct the inline block first, then paste it atomically.
+    content := Trim(A_Clipboard, "`r`n`t ")
+    block := "``" . content . "``"
+    SafePaste(block)
 }
 
 ; Helper function to create code block and paste content
@@ -91,11 +91,11 @@ CreateCodeBlockWithPaste() {
     SafePaste(block)
 }
 
-; Feature 1: CapsLock + ` creates spaced code block
-CapsLock & `::CreateCodeBlock()
+; Feature 1: CapsLock + ` creates inline code and pastes
+CapsLock & `::CreateInlineCodeWithPaste()
 
-; Feature 1: RAlt + ` creates spaced code block  
->*!`::CreateCodeBlock()
+; Feature 1: RAlt + ` creates inline code and pastes
+>*!`::CreateInlineCodeWithPaste()
 
 ; Feature 2: CapsLock + v creates code block and pastes
 CapsLock & v::CreateCodeBlockWithPaste()
