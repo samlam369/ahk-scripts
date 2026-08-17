@@ -1,4 +1,28 @@
 #Requires AutoHotkey v2.0
+#SingleInstance Off
+
+; Ensure the script runs with administrative privileges
+if !A_IsAdmin {
+    try {
+        if A_IsCompiled
+            Run '*RunAs "' A_ScriptFullPath '"'
+        else
+            Run '*RunAs "' A_AhkPath '" "' A_ScriptFullPath '"'
+    }
+    ExitApp
+}
+
+; Now running with Administrator privileges: close any other existing instance of this script
+DetectHiddenWindows(true)
+SetTitleMatchMode(2)
+for hwnd in WinGetList(A_ScriptFullPath " ahk_class AutoHotkey") {
+    if (hwnd != A_ScriptHwnd) {
+        WinClose(hwnd)
+        if !WinWaitClose(hwnd, 1) {
+            try ProcessClose(WinGetPID(hwnd))
+        }
+    }
+}
 
 ; ============================================
 ; Key Mappings Configuration
